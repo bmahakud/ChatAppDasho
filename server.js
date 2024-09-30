@@ -3,7 +3,7 @@ import { Server } from "socket.io";
 import { createServer } from "http";
 import cors from "cors";
 
-const port = 4000;
+const port = 4001;
 const app = express();
 const server = createServer(app);
 
@@ -74,14 +74,34 @@ io.on('connection', (socket) => {
           })
   
           socket.on('typing', (data) => {
-            const { roomId, typingUserId } = data;
+            const { roomId, typingUserId, otherUserId} = data;
   
             if (roomId && typingUserId) {
-                console.log("roomId typing", roomId);
-                io.in(`${roomId}`).emit("typing", data.typingUserId);
+                console.log("roomId typing", roomId, otherUserId);
+                io.in(`${roomId}`).emit("typing", data);
             } else {
                 console.log("Invalid data for typing event", data);
             }
+        });
+
+        socket.on('onChatSeen', (data) => {
+          const roomId = data.roomId;
+          const selfId = data.selfId;
+          const otherId = data.otherUserId
+
+          console.log("onChatSeen", data.roomId, data.selfId )
+          // Emit the id of the person who's on chat screen
+          io.in(`${roomId}`).emit("onChatSeen", data.selfId);
+        
+        });
+
+        socket.on('onChatSeenLeft', (data) => {
+
+          const roomId = data.roomId
+          const selfId = data.selfId
+
+          // Emit the id of the person leaving the chat screen in the room
+          io.in(`${roomId}`).emit("onChatSeenLeft", data.selfId)
         });
 
         socket.on("unsubscribe", (data) => {
