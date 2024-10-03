@@ -78,7 +78,8 @@ io.on('connection', (socket) => {
   
             if (roomId && typingUserId) {
                 console.log("roomId typing", roomId, otherUserId);
-                io.in(`${roomId}`).emit("typing", data);
+                // io.in(`${roomId}`).emit("typing", data);
+                io.emit("typing", data)
             } else {
                 console.log("Invalid data for typing event", data);
             }
