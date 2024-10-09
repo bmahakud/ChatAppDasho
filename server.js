@@ -3,7 +3,7 @@ import { Server } from "socket.io";
 import { createServer } from "http";
 import cors from "cors";
 
-const port = 4000;
+const port = 4000 ;
 const app = express();
 const server = createServer(app);
 
@@ -66,19 +66,36 @@ io.on('connection', (socket) => {
               const messageTimestamp = data.commenttime;
               const userId = data.commenter;
               const isRead = data.read;
+              const file  = data.file;
+              const groupType = data.groupType;
+              const senderId = data.senderId
               
               // const chat = await addMessageHelper(roomId, username, messageContent, messageTimestamp, isRead)
-              console.log(data)
+              console.log("NewMessage", data)
               io.in(`${roomId}`).emit("newMessage", data)
               // socket.broadcast.to(`${roomId}`).emit("newMessage", data)
-          })
+          });
+
+          // socket.on("newMessageOuter", (data)=>{
+
+          //   const roomId =data.groupId;
+          //   const messageContent = data.commenttext;
+          //   const messageTimestamp = data.commenttime;
+          //   const userId = data.commenter;
+          //   const isRead = data.read;
+              
+          //   console.log("NewMessageOuter", data)
+          //   io.in(`${roomId}`).emit("newMessage", data)
+
+          // });
   
           socket.on('typing', (data) => {
             const { roomId, typingUserId, otherUserId} = data;
   
-            if (roomId && typingUserId) {
-                console.log("roomId typing", roomId, otherUserId);
+            if(roomId && typingUserId) {
+                console.log("roomId typing", roomId, typingUserId);
                 // io.in(`${roomId}`).emit("typing", data);
+                // emit to the whole io so that anyone can listen to it from the outer chat list
                 io.emit("typing", data)
             } else {
                 console.log("Invalid data for typing event", data);
@@ -91,16 +108,16 @@ io.on('connection', (socket) => {
           const otherId = data.otherId 
 
           io.in(`${room}`).emit("markMessageRead", data);
-        })
+        })  
 
         socket.on('onChatSeen', (data) =>  {
           const roomId = data.roomId;
           const selfId = data.selfId;
           const otherId = data.otherUserId
 
-          console.log("onChatSeen", data.roomId, data.selfId )
+          console.log("onChatSeen", roomId, selfId )
           // Emit the id of the person who's on chat screen
-          io.in(`${roomId}`).emit("onChatSeen", data.selfId);
+          io.in(`${roomId}`).emit("onChatSeen", selfId);
         
         });
 
@@ -111,6 +128,18 @@ io.on('connection', (socket) => {
 
           // Emit the id of the person leaving the chat screen in the room
           io.in(`${roomId}`).emit("onChatSeenLeft", data.selfId)
+        });
+
+
+        socket.on("chatAttachSent", (data) => {
+
+          const roomId = data.roomId;
+          const senderId = data.senderId
+
+          console.log("chatAttachSent", data);
+
+          // Emit the id of the person leaving the chat screen in the room
+          io.in(`${roomId}`).emit("chatAttachSent", data)
         });
 
         socket.on("unsubscribe", (data) => {
@@ -150,7 +179,7 @@ io.on('connection', (socket) => {
             }
           }
       });
-
+ 
 });
 
 server.listen(port, '0.0.0.0', () => {
