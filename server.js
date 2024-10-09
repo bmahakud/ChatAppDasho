@@ -3,7 +3,7 @@ import { Server } from "socket.io";
 import { createServer } from "http";
 import cors from "cors";
 
-const port = 4001;
+const port = 4000;
 const app = express();
 const server = createServer(app);
 
@@ -61,12 +61,12 @@ io.on('connection', (socket) => {
           })
           socket.on("newMessage", (data)=>{
   
-              const roomId =data.roomId;
-              const messageContent = data.messageContent;
-              const messageTimestamp = data.messageTimestamp;
-              const userId = data.userId;
-              const otherUserId = data.otherUserId;
-              const isRead = false;
+              const roomId =data.groupId;
+              const messageContent = data.commenttext;
+              const messageTimestamp = data.commenttime;
+              const userId = data.commenter;
+              const isRead = data.read;
+              
               // const chat = await addMessageHelper(roomId, username, messageContent, messageTimestamp, isRead)
               console.log(data)
               io.in(`${roomId}`).emit("newMessage", data)
@@ -78,13 +78,22 @@ io.on('connection', (socket) => {
   
             if (roomId && typingUserId) {
                 console.log("roomId typing", roomId, otherUserId);
-                io.in(`${roomId}`).emit("typing", data);
+                // io.in(`${roomId}`).emit("typing", data);
+                io.emit("typing", data)
             } else {
                 console.log("Invalid data for typing event", data);
             }
         });
 
-        socket.on('onChatSeen', (data) => {
+        socket.on('markMessageRead', (data) => {
+          const room = data.roomId
+          const selfId = data.selfId
+          const otherId = data.otherId 
+
+          io.in(`${room}`).emit("markMessageRead", data);
+        })
+
+        socket.on('onChatSeen', (data) =>  {
           const roomId = data.roomId;
           const selfId = data.selfId;
           const otherId = data.otherUserId
@@ -116,6 +125,17 @@ io.on('connection', (socket) => {
 
       io.in(`${roomId}`).emit("newMessage", leaveMessage); // Emit a relevant message instead of chat.
       socket.leave(`${roomId}`);
+      });
+
+
+      // Notices 
+      socket.on('noticePost', (data)=>{
+
+        const uploaderId = data.uploaderId          
+
+
+
+
       });
 
 
