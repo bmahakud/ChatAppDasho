@@ -1,212 +1,240 @@
 import express from "express";
 import { Server } from "socket.io";
 import { createServer } from "http";
+import https from "https";
+import fs from "fs";
 import cors from "cors";
 
-const port = 4000 ;
+const port = 5001;
 const app = express();
-const server = createServer(app);
 
+// SSL options
+const sslOptions = {
+  key: fs.readFileSync('/etc/letsencrypt/live/chat.dashoapp.com-0001/privkey.pem'),
+  cert: fs.readFileSync('/etc/letsencrypt/live/chat.dashoapp.com-0001/fullchain.pem')
+};
+
+console.log("restarting server with SSL");
+
+// Allowed origins for CORS
+
+// Allowed origins for CORS
 const allowedOrigins = [
     "http://localhost:3000",
-  "http://localhost:5173",
-        "*",
+    "http://localhost:5173",
+    "https://dashoapp.com",
+    "https://chat.dashoapp.com",
+    "https://stage.dashoapp.com"
 ];
 
-app.use(
-  cors({
-    origin: allowedOrigins,
-    methods: ["GET", "POST"],
-    credentials: true,
-  })
-);
+// CORS setup for Express app
+app.use(cors({
+  origin: function (origin, callback) {
+    if (!origin || allowedOrigins.includes(origin)) {
+      callback(null, true);
+    } else {
+      callback(new Error("Not allowed by CORS"));
+    }
+  },
+  methods: ["GET", "POST"],
+  credentials: true
+}));
 
+// Create the HTTPS server with Express
+const server = https.createServer(sslOptions, app);
+
+// Set up Socket.IO with CORS for the HTTPS server
 const io = new Server(server, {
   cors: {
     origin: allowedOrigins,
     methods: ["GET", "POST"],
-    credentials: true,
-  },
+    credentials: true
+  }
 });
-
+// Set up basic routes
 app.get("/", (req, res) => {
   res.send("Hello World!");
 });
 
-const users = {}
+// Store connected users with their User IDs and their connected socket instances
+const users = new Map();
 
 
-io.on('connection', (socket) => {
-        console.log('User connected ' + socket.id );
-        io.emit("connectId", socket.id);
+// Socket.IO events
+io.on("connection", (socket) => {
+  console.log(`User connected: ${socket.id}`);
+  io.emit("connectId", socket.id);
 
-        // When socket of a user is connected, we're storing the pair of the userId and it's socketID
-        // WHen the socket is disconnecting, we're removing it from the list
-        socket.on('register', (userId) => {
-            users[userId] = socket.id;
-            console.log(`${userId} connected with socketId: ${socket.id}`);
-          })
-  
-          
-          socket.on("subscribe", (data)=>{
-  
-              const roomId = data.roomId;
-              const userId = data.userId;
-              const otherUserId = data.otherUserId;
-              console.log("subscribe", roomId, userId)
-              socket.join(`${roomId}`);
-  
-              io.emit("otherUserId", otherUserId, roomId)
-              io.to(`${roomId}`).emit("otherUser",userId)
-          })
+  socket.on('register', (userId) => {
+    if (!users.has(userId)) {
+      users.set(userId, []);
+    }
+    const socketIds = users.get(userId);
+    if (!socketIds.includes(socket.id)) {
+      socketIds.push(socket.id);
+    }
 
-          socket.on("OtherUserConnectedRevert", (data)=>{
+    console.log(`${userId} connected with socketId: ${socket.id}`);
+    console.log(users);
 
-            const roomId = data.roomId
-            const userId = data.userId;
-            const otherUserId = data.otherUserId;
+  });
 
+  // Join a room
+  socket.on("subscribe", (data) => {
 
-            console.log("OtherUserConnectedRevert", data)
-            io.emit("otherUserIdRevert", data)
+    const roomId = data.roomId;
+    const userId = data.userId;
+    const otherUserId = data.otherUserId;
+    console.log("subscribe", roomId, userId)
+    socket.join(`${roomId}`);
+    socket.in(`${roomId}`).emit("subscribe", data);
+    // io.to(roomId).emit("subscribe",data);
+    io.to(`${roomId}`).emit("subscribe",data);
+  })
 
-          });
-
-
-
-          socket.on("newMessage", (data)=>{
-  
-              const roomId =data.groupId;
-              const messageContent = data.commenttext;
-              const messageTimestamp = data.commenttime;
-              const userId = data.commenter;
-              const isRead = data.read;
-              const file  = data.file;
-              const groupType = data.groupType;
-              const senderId = data.senderId
-              
-              // const chat = await addMessageHelper(roomId, username, messageContent, messageTimestamp, isRead)
-              console.log("NewMessage", data)
-              io.in(`${roomId}`).emit("newMessage", data)
-              // socket.broadcast.to(`${roomId}`).emit("newMessage", data)
-          });
-
-          // socket.on("newMessageOuter", (data)=>{
-
-          //   const roomId =data.groupId;
-          //   const messageContent = data.commenttext;
-          //   const messageTimestamp = data.commenttime;
-          //   const userId = data.commenter;
-          //   const isRead = data.read;
-              
-          //   console.log("NewMessageOuter", data)
-          //   io.in(`${roomId}`).emit("newMessage", data)
-
-          // });
-  
+  // Notify other users about room events
+  socket.on("OtherUserConnectedRevert", (data) => {
+    const { roomId } = data;
+    console.log("OtherUserConnectedRevert", data);
+    // socket.in(`${roomId}`).emit("OtherUserConnectedRevert", data);
+    // io.to(roomId).emit("OtherUserConnectedRevert",data);
+    io.to(`${roomId}`).emit("OtherUserConnectedRevert",data);
 
 
+  });
 
-        socket.on('typing', (data) => {
-          const { roomId, typingUserId, otherUserId} = data;
-          if(roomId && typingUserId) {
-              
-            console.log("roomId typing", roomId, typingUserId);
-              socket.to(`${data.roomId}`).emit("typing",data);
-              console.log("who is typing 128",data);
-              
-              if (users[otherUserId]) {
-                  io.to(otherUserId).emit("typing",data);
-                  console.log("Typing event emitted to particular userId using SocketID: ", data+" "+users[otherUserId ]);
-              }
-              else {
-                  console.log(`User with userId: ${otherUserId} is not connected`);
-  
-              }
-          } else {
-              console.log("Invalid data for typing event", data);
-          }
-      });
+  // Send a new message
+  socket.on("newMessage", (data) => {
+    const {
+      groupId: roomId,
+      commenter: senderId,
+      otherUserId: receiverId,
+    } = data;
 
-        socket.on('markMessageRead', (data) => {
-          const room = data.roomId
-          const selfId = data.selfId
-          const otherId = data.otherId 
-          console.log("markMessageReadEvent emitted by ", data.selfId)
-          io.in(`${room}`).emit("markMessageRead", data);
-        })  
+    const receiverSocketIds = users.get(receiverId);
+    if (receiverSocketIds) {
+      receiverSocketIds.forEach((socketId) =>
+        io.to(socketId).emit("newMessage", data)
+      );
+    }
 
-        socket.on('onChatSeen', (data) =>  {
-          const roomId = data.roomId;
-          const selfId = data.selfId;
-          const otherId = data.otherUserId
+    const senderSocketIds = users.get(senderId);
+    if (senderSocketIds) {
+      senderSocketIds.forEach((socketId) =>
+        io.to(socketId).emit("newMessage", data)
+      );
+    }
 
-          console.log("onChatSeen", roomId, selfId )
-          // Emit the id of the person who's on chat screen
-          io.in(`${roomId}`).emit("onChatSeen", selfId);
-        
-        });
+    console.log("NewMessage event emitted:", data);
+  });
 
-        socket.on('onChatSeenLeft', (data) => {
+  // Notify typing event
+  socket.on("typing", (data) => {
+    const { roomId, typingUserId, otherUserId } = data;
 
-          const roomId = data.roomId
-          const selfId = data.selfId
+    const receiverSocketIds = users.get(otherUserId);
+    if (receiverSocketIds) {
+      receiverSocketIds.forEach((socketId) =>
+        io.to(socketId).emit("typing", data)
+      );
+    }
 
-          // Emit the id of the person leaving the chat screen in the room
-          io.in(`${roomId}`).emit("onChatSeenLeft", data.selfId)
-        });
+    console.log("Typing event emitted:", data);
+  });
 
 
-        socket.on("chatAttachSent", (data) => {
+  // Handle message deletion
+  socket.on("deleteMessage", (data) => {
+    const { commenter: senderId, otherUserId } = data;
 
-          const roomId = data.roomId;
-          const senderId = data.senderId
+    const receiverSocketIds = users.get(otherUserId);
+    if (receiverSocketIds) {
+      receiverSocketIds.forEach((socketId) =>
+        io.to(socketId).emit("deleteMessage", data)
+      );
+    }
 
-          console.log("chatAttachSent", data);
+    const senderSocketIds = users.get(senderId);
+    if (senderSocketIds) {
+      senderSocketIds.forEach((socketId) =>
+        io.to(socketId).emit("deleteMessage", data)
+      );
+    }
 
-          // Emit the id of the person leaving the chat screen in the room
-          io.in(`${roomId}`).emit("chatAttachSent", data)
-        });
+    console.log("DeleteMessage event emitted:", data);
+  });
 
-        socket.on("unsubscribe", (data) => {
-              const roomId = data.roomId;
-              const userId = data.userId;
+  // Block user
+  socket.on("blockUser", (data) => {
+    const { blockedUserId } = data;
 
-              console.log("unsubscribe", roomId + "by user: " + userId + "at " + new Date());
+    const receiverSocketIds = users.get(blockedUserId);
+    if (receiverSocketIds) {
+      receiverSocketIds.forEach((socketId) =>
+        io.to(socketId).emit("blockUser", data)
+      );
+    }
 
-              // Emit a relevant message
-              socket.to(roomId).emit("userLeft", "User left with id: " + userId);
+    console.log("BlockUser event emitted:", data);
+  });
 
-              socket.leave(`${roomId}`);
-        });
+  // Unblock user
+  socket.on("unblockUser", (data) => {
+    const { unblockedUserId } = data;
+
+    const receiverSocketIds = users.get(unblockedUserId);
+    if (receiverSocketIds) {
+      receiverSocketIds.forEach((socketId) =>
+        io.to(socketId).emit("unblockUser", data)
+      );
+    }
+
+    console.log("UnblockUser event emitted:", data);
+  });
+
+  // Leave a room
+  socket.on("unsubscribe", (data) => {
+    const { roomId } = data;
+    console.log("unsubscribe", roomId);
+    socket.leave(roomId);
+    socket.in(`${roomId}`).emit("unsubscribe", data);   
+    io.to(`${roomId}`).emit("unsubscribe",data);
 
 
-      // Notices 
-      socket.on('noticePost', (data)=>{
-
-        const uploaderId = data.uploaderId          
+  });
 
 
+  // Handle disconnection
+  socket.on("disconnect", () => {
+    console.log(`User disconnected: ${socket.id}`);
+    users.forEach((socketIds, userId) => {
+      const updatedSocketIds = socketIds.filter((id) => id !== socket.id);
+      if (updatedSocketIds.length > 0) {
+        users.set(userId, updatedSocketIds);
+      } else {
+        users.delete(userId);
+      }
+    });
+    console.log("Updated users list:", users);
+  });
 
-
-      });
-
-
-
-      socket.on('disconnect', () => {
-          console.log('A user disconnected');
-          for(let userId in users){
-            if(users[userId] == socket.id){
-              delete users[userId];
-              // console.log(`${userName} disconnected`);
-              break;
-            }
-          }
-      });
- 
+  socket.on('unregister', (userId, socketId) => {
+    if (users.has(userId)) {
+      const socketIds = users.get(userId);
+      const index = socketIds.indexOf(socketId);
+      if (index !== -1) {
+        socketIds.splice(index, 1);  
+      }
+      if (socketIds.length === 0) {
+        users.delete(userId);
+      }
+      console.log(`${userId} disconnected with socketId: ${socketId}`);
+      console.log(users);
+    }
+  });
 });
 
-server.listen(port, '0.0.0.0', () => {
-console.log(`Server is running on port ${port}`);
+// Start the server
+server.listen(port, () => {
+  console.log(`Server running on http://localhost:${port}`);
 });
-                                                                                                                                 
